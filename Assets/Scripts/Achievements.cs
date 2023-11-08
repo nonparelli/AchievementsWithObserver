@@ -5,7 +5,7 @@ using UnityEngine;
 
 public class Achievements : MonoBehaviour {
 
-    private const int nAchievements = 2;
+    private const int nAchievements = 3;
     public enum Achievement_ID {
         Coin_Collector,
         Terminator,
