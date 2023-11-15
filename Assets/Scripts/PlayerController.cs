@@ -1,182 +1,166 @@
-using System;
 using System.Collections;
+using System;
 using System.Collections.Generic;
+using System.Linq.Expressions;
 using UnityEngine;
 
 public class PlayerController : MonoBehaviour
 {
-    
     Rigidbody _rigidbody;
-    Vector3 _start_pos;
-    float TimeAccu = 0.0f;
 
-    bool bReplaying = false;
-
-    // Commands:
     Command cmd_W = new MoveForwardCommand();
     Command cmd_A = new MoveLeftCommand();
     Command cmd_S = new MoveBackwardCommand();
     Command cmd_D = new MoveRightCommand();
 
-    Command cmdNothing = new DoNothingCommand();
-    Command cmdForward = new MoveForwardCommand();
-    Command cmdBackward = new MoveBackwardCommand();
-    Command cmdLeft = new MoveLeftCommand();
-    Command cmdRight = new MoveRightCommand();
+    CommandHistory _history = new CommandHistory();
 
-    //ref Command rcmd = ref cmdNothing;
+    [SerializeField]
+    bool _startUndo = false;
+    [SerializeField]
+    bool _undoActive = false;
+    [SerializeField]
+    bool _replayActive = false, _startReplay = false;
+    [SerializeField]
+    float _waitTime = 0.1f;
 
-    Command _last_command = null;
-
-    // Stacks to store the commands
-    Stack<Command> _undo_commands = new Stack<Command>();
-    Stack<Command> _redo_commands = new Stack<Command>();
-    Stack<Command> _replay_commands = new Stack<Command>();
-
-    // Set a keybinding
-    void SetCommand(ref Command cmd, ref Command new_cmd)
+    private void OnTriggerEnter(Collider other)
     {
-        cmd = new_cmd;
-    }
-
-    void SwapCommands(ref Command A, ref Command B)
-    {
-        Command tmp = A;
-        A = B;
-        B = tmp;
-
-    //    _undo_commands.Push();
-    //    Command cmd = _undo_commands.Pop();
-    }
-
-    void ClearCommands()
-    {
-        SetCommand(ref cmd_W, ref cmdNothing);
-        SetCommand(ref cmd_A, ref cmdNothing);
-        SetCommand(ref cmd_S, ref cmdNothing);
-        SetCommand(ref cmd_D, ref cmdNothing);
-    }
-
-    private void OnTriggerEnter(Collider other) {
+        Enemy isenemy = other.gameObject.GetComponent<Enemy>();
+        if (isenemy != null)
+        {
+            isenemy.OnDamaged(2f);
+            return;
+        }
         Destroy(other.gameObject); // Destroy the coin!
     }
 
     // Start is called before the first frame update
     void Start()
     {
-        _rigidbody = GetComponent<Rigidbody>();
-        _start_pos = transform.position;
-
-    }
-
-    IEnumerator Replay()
-    {
-        // Go through all the replay commands
-        while (_replay_commands.Count > 0)
-        {
-            Command cmd = _replay_commands.Pop();
-            _undo_commands.Push(cmd);
-            cmd.Execute(_rigidbody);
-            yield return new WaitForSeconds(.5f);
-        }
-
-        bReplaying = false;
+        _rigidbody = GetComponentInChildren<Rigidbody>();
     }
 
     // Update is called once per frame
     void Update()
     {
-
-        if (bReplaying)
+        if (_startReplay)
         {
-            TimeAccu += Time.deltaTime;
-            // ...
+            StartCoroutine(ReplayCommands());
+            _startReplay = false;
+            return;
+        }
+        if (_startUndo && _history.undo.Count > 0)
+        {
+            //_undo_commands.Pop().Undo(_rigidbody);
+            _undoActive = true;
+            StartCoroutine(UndoCommand());
+            _startUndo = false;
+            return;
 
         }
-        else
+        else if (_undoActive || _replayActive)
+            return;
+
+        _startUndo = false;
+
+        if (Input.GetKeyDown(KeyCode.W))
         {
+            cmd_W.Execute(_rigidbody);
 
-            if (Input.GetKeyDown(KeyCode.R))
-            {
-                bReplaying = true;
-                TimeAccu = 0.0f;
-                // Get the Undo-stack and "reverse" it
-                while( _undo_commands.Count > 0)
-                {
-                    _replay_commands.Push(_undo_commands.Pop());
-                }
-                // Move the player to the start position
-                transform.position = _start_pos;
+            _history.undo.Push(cmd_W);
 
-                // Start the replay
-                StartCoroutine( Replay());
+            _history.redo.Clear();
+        }
+        if (Input.GetKeyDown(KeyCode.A))
+        {
+            cmd_A.Execute(_rigidbody);
 
-            }
+            _history.undo.Push(cmd_A);
 
-            if (Input.GetKeyDown(KeyCode.W))
-            {
-                cmd_W.Execute(_rigidbody);
-                _undo_commands.Push(cmd_W);
-                _redo_commands.Clear();
-                //_last_command = cmd_W;
-            }
-            if (Input.GetKeyDown(KeyCode.A))
-            {
-                cmd_A.Execute(_rigidbody);
-                _undo_commands.Push(cmd_A);
-                _redo_commands.Clear();
-                //_last_command = cmd_A;
-            }
-            if (Input.GetKeyDown(KeyCode.S))
-            {
-                cmd_S.Execute(_rigidbody);
-                _undo_commands.Push(cmd_S);
-                _redo_commands.Clear();
-                //_last_command = cmd_S;
-            }
-            if (Input.GetKeyDown(KeyCode.D))
-            {
-                cmd_D.Execute(_rigidbody);
-                _undo_commands.Push(cmd_D);
-                _redo_commands.Clear();
-                //_last_command = cmd_D;
-            }
-            if (Input.GetKeyDown(KeyCode.Space))
-            {
-                _rigidbody.AddForce(10.0f * transform.up, ForceMode.Impulse);
-            }
+            _history.redo.Clear();
+        }
+        if (Input.GetKeyDown(KeyCode.S))
+        {
+            cmd_S.Execute(_rigidbody);
 
-            if (Input.GetKeyDown(KeyCode.Z))
-            {
-                // If there are commands in the stack...
-                if (_undo_commands.Count > 0)
-                {
-                    // ... pop one command out and execute it.
-                    Command cmd = _undo_commands.Pop();
-                    _redo_commands.Push(cmd);
-                    cmd.Undo(_rigidbody);
-                }
-            }
-            if (Input.GetKeyDown(KeyCode.X))
-            {
+            _history.undo.Push(cmd_S);
 
-                if (_redo_commands.Count > 0)
-                {
-                    Command cmd = _redo_commands.Pop();
-                    _undo_commands.Push(cmd);
-                    cmd.Execute(_rigidbody);
-                }
+            _history.redo.Clear();
+        }
+        if (Input.GetKeyDown(KeyCode.D))
+        {
+            cmd_D.Execute(_rigidbody);
 
-            }
+            _history.undo.Push(cmd_D);
 
-            // We can swap commands if we want to
-            if (Input.GetKeyDown(KeyCode.Escape))
-            {
-                //ClearCommands();
-                //SwapCommands(ref cmd_A, ref cmd_D);
-            }
-
+            _history.redo.Clear();
         }
 
+        if (Input.GetKeyDown(KeyCode.Space))
+        {
+            _rigidbody.AddForce(10.0f*transform.up, ForceMode.Impulse);
+        }
+        if (Input.GetKeyDown(KeyCode.Z)) { // undo, do we need to add this to replay somehow??
+            if (_history.undo.Count > 0)
+            {
+                _history.redo.Push(_history.undo.Peek());
+                _history.undo.Pop().Undo(_rigidbody);
+            }
+        }
+        if (Input.GetKeyDown(KeyCode.X)) // rewind undo
+        {
+            _startUndo = true;
+        }
+        if(Input.GetKeyDown(KeyCode.R)) // redo
+        {
+            if (_history.redo.Count > 0)
+            {
+                _history.undo.Push(_history.redo.Peek());
+                _history.redo.Pop().Execute(_rigidbody);
+            }
+        }
+        if(Input.GetKeyDown(KeyCode.T)) // Replay moves so far from start
+        {
+            _startReplay = true;
+        }
+        /*
+        if (Input.GetKeyDown(KeyCode.X))
+        {
+            SwapCommands(ref cmd_A,ref cmd_D);
+        }
+        */
     }
+
+    IEnumerator UndoCommand()
+    {
+
+        do
+        {
+            _history.redo.Push(_history.undo.Peek());
+            _history.undo.Pop().Undo(_rigidbody);
+            yield return new WaitForSeconds(_waitTime);
+        } while (_history.undo.Count>0);
+
+        _undoActive = false;
+    }
+    IEnumerator ReplayCommands()
+    {
+
+        Stack<Command> temp = new Stack<Command>();
+        while (_history.undo.Count > 0)
+        {
+            temp.Push(_history.undo.Peek());
+            _history.undo.Pop().Undo(_rigidbody);
+        }
+        
+        while (temp.Count > 0)
+        {
+            _history.undo.Push(temp.Peek());
+            temp.Pop().Execute(_rigidbody);
+            yield return new WaitForSeconds(_waitTime);
+        }
+        _replayActive = false;
+    }
+
 }

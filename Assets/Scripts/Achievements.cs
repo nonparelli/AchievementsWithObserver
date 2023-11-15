@@ -17,10 +17,12 @@ public class Achievements : MonoBehaviour {
     
 
     private int nCoins = 0;
+    private int nKills = 0;
     
     private void Start() {
         // Add our method to listen to Coin-class event:
         Coin.OnCoinCollected += CoinWasCollected;
+        Enemy.OnEnemyKill += EnemyWasKilled;
     }
 
     void CoinWasCollected() {
@@ -30,6 +32,20 @@ public class Achievements : MonoBehaviour {
             if (!bUnlockedAchievements[index]) {
                 bUnlockedAchievements[index] = true;
                 Debug.Log("You've unlocked: COIN COLLECTOR!!!");
+            }
+        }
+    }
+
+    void EnemyWasKilled()
+    {
+        nKills++;
+        if (nKills == 10)
+        {
+            int index = (int)Achievement_ID.Terminator;
+            if (!bUnlockedAchievements[index])
+            {
+                bUnlockedAchievements[index] = true;
+                Debug.Log("You've unlocked: TERMINATOR!!!");
             }
         }
     }
