@@ -3,17 +3,23 @@ using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using UnityEngine;
+using Unity.VisualScripting;
 
 public class PlayerController : MonoBehaviour
 {
+    public enum PlayerState
+    {
+        JUMPING,
+        STANDING,
+        CROUCHING,
+        METAL_JUMPING,
+        METAL_STANDING,
+        METAL_CROUCHING
+    }
+    // Keep Track of Playerstate
+    public PlayerState my_state = PlayerState.JUMPING;
+
     Rigidbody _rigidbody;
-
-    Command cmd_W = new MoveForwardCommand();
-    Command cmd_A = new MoveLeftCommand();
-    Command cmd_S = new MoveBackwardCommand();
-    Command cmd_D = new MoveRightCommand();
-
-    CommandHistory _history = new CommandHistory();
 
     [SerializeField]
     bool _startUndo = false;
@@ -23,16 +29,36 @@ public class PlayerController : MonoBehaviour
     bool _replayActive = false, _startReplay = false;
     [SerializeField]
     float _waitTime = 0.1f;
+    [SerializeField]
+    Material _defaultMaterial, _camoMaterial,_metalMaterial;
+
+    // Commands
+    Command cmd_W = new MoveForwardCommand();
+    Command cmd_A = new MoveLeftCommand();
+    Command cmd_S = new MoveBackwardCommand();
+    Command cmd_D = new MoveRightCommand();
+    CommandHistory _history = new CommandHistory();
 
     private void OnTriggerEnter(Collider other)
     {
         Enemy isenemy = other.gameObject.GetComponent<Enemy>();
         if (isenemy != null)
         {
-            isenemy.OnDamaged(2f);
+            if (my_state == PlayerState.METAL_JUMPING || my_state == PlayerState.METAL_STANDING)
+                isenemy.OnDamaged(6f);
+            else
+                isenemy.OnDamaged(2f);
             return;
         }
+        // Otherwise it's a coin so
+        if (my_state == PlayerState.JUMPING)
+        { my_state = PlayerState.METAL_JUMPING; gameObject.GetComponent<MeshRenderer>().material = _metalMaterial; }
+        else if (my_state == PlayerState.STANDING)
+        { my_state = PlayerState.METAL_STANDING; gameObject.GetComponent<MeshRenderer>().material = _metalMaterial;}
+        else if(my_state==PlayerState.CROUCHING)
+            my_state = PlayerState.METAL_CROUCHING;
         Destroy(other.gameObject); // Destroy the coin!
+
     }
 
     // Start is called before the first frame update
@@ -44,6 +70,7 @@ public class PlayerController : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
+        // Check if we're in a replay state
         if (_startReplay)
         {
             StartCoroutine(ReplayCommands());
@@ -61,9 +88,90 @@ public class PlayerController : MonoBehaviour
         }
         else if (_undoActive || _replayActive)
             return;
-
+        //
         _startUndo = false;
 
+        // Player inputs
+        switch (my_state)
+        {
+            case PlayerState.JUMPING: // Jumping is disabled, Crouching is disabled
+                DirectionalInputs();
+                break;
+
+            case PlayerState.STANDING: // Jumping is enabled, Crouching is enabled
+                if (Input.GetKeyDown(KeyCode.LeftControl))
+                { my_state = PlayerState.CROUCHING; gameObject.GetComponent<MeshRenderer>().material = _camoMaterial; }
+                else if (Input.GetKeyUp(KeyCode.LeftControl))
+                { my_state = PlayerState.STANDING; gameObject.GetComponent<MeshRenderer>().material = _defaultMaterial; }
+                JumpInputs();
+                DirectionalInputs();
+                break;
+
+            case PlayerState.CROUCHING: // Jumping is disabled
+                if (Input.GetKeyDown(KeyCode.LeftControl))
+                { my_state = PlayerState.CROUCHING; gameObject.GetComponent<MeshRenderer>().material = _camoMaterial; }
+                else if (Input.GetKeyUp(KeyCode.LeftControl))
+                { my_state = PlayerState.STANDING; gameObject.GetComponent<MeshRenderer>().material = _defaultMaterial; }
+                DirectionalInputs();
+                break;
+            case PlayerState.METAL_JUMPING: // Jumping is disabled, Crouching is disabled
+                DirectionalInputs();
+                break;
+
+            case PlayerState.METAL_STANDING: // Jumping is enabled, Crouching is enabled
+                if (Input.GetKeyDown(KeyCode.LeftControl))
+                { my_state = PlayerState.METAL_CROUCHING; gameObject.GetComponent<MeshRenderer>().material = _camoMaterial; }
+                else if (Input.GetKeyUp(KeyCode.LeftControl))
+                { my_state = PlayerState.METAL_STANDING; gameObject.GetComponent<MeshRenderer>().material = _metalMaterial; }
+                JumpInputs();
+                DirectionalInputs();
+                break;
+
+            case PlayerState.METAL_CROUCHING: // Jumping is disabled
+                if (Input.GetKeyDown(KeyCode.LeftControl))
+                { my_state = PlayerState.METAL_CROUCHING; gameObject.GetComponent<MeshRenderer>().material = _camoMaterial; }
+                else if (Input.GetKeyUp(KeyCode.LeftControl))
+                { my_state = PlayerState.METAL_STANDING; gameObject.GetComponent<MeshRenderer>().material = _metalMaterial; }
+                DirectionalInputs();
+                break;
+
+
+            default:
+                break;
+        }
+
+    }
+
+    void JumpInputs()
+    {
+
+        if (Input.GetKeyDown(KeyCode.Space))
+        {
+            if (my_state == PlayerState.METAL_STANDING)
+            {
+                _rigidbody.AddForce(5.0f * transform.up, ForceMode.Impulse);
+                my_state = PlayerState.METAL_JUMPING;
+            }
+            if (my_state == PlayerState.STANDING)
+            {
+                _rigidbody.AddForce(10.0f * transform.up, ForceMode.Impulse);
+                my_state = PlayerState.JUMPING;
+            }
+        }
+    }
+
+    void CrouchInputs()
+    {
+        // Crouch
+        if (Input.GetKeyDown(KeyCode.LeftControl))
+            my_state = PlayerState.CROUCHING;
+
+        if (Input.GetKeyUp(KeyCode.LeftControl))
+            my_state = PlayerState.STANDING;
+    }
+
+    void DirectionalInputs()
+    {
         if (Input.GetKeyDown(KeyCode.W))
         {
             cmd_W.Execute(_rigidbody);
@@ -96,12 +204,12 @@ public class PlayerController : MonoBehaviour
 
             _history.redo.Clear();
         }
+    }
 
-        if (Input.GetKeyDown(KeyCode.Space))
-        {
-            _rigidbody.AddForce(10.0f*transform.up, ForceMode.Impulse);
-        }
-        if (Input.GetKeyDown(KeyCode.Z)) { // undo, do we need to add this to replay somehow??
+    void ReplayControls()
+    {
+        if (Input.GetKeyDown(KeyCode.Z))
+        { // undo, do we need to add this to replay somehow??
             if (_history.undo.Count > 0)
             {
                 _history.redo.Push(_history.undo.Peek());
@@ -112,7 +220,7 @@ public class PlayerController : MonoBehaviour
         {
             _startUndo = true;
         }
-        if(Input.GetKeyDown(KeyCode.R)) // redo
+        if (Input.GetKeyDown(KeyCode.R)) // redo
         {
             if (_history.redo.Count > 0)
             {
@@ -120,7 +228,7 @@ public class PlayerController : MonoBehaviour
                 _history.redo.Pop().Execute(_rigidbody);
             }
         }
-        if(Input.GetKeyDown(KeyCode.T)) // Replay moves so far from start
+        if (Input.GetKeyDown(KeyCode.T)) // Replay moves so far from start
         {
             _startReplay = true;
         }
@@ -132,6 +240,15 @@ public class PlayerController : MonoBehaviour
         */
     }
 
+    // We can jump again whenever we hit Anything
+    void OnCollisionEnter()
+    {
+        if(my_state==PlayerState.JUMPING)
+         my_state = PlayerState.STANDING;
+        if (my_state == PlayerState.METAL_JUMPING)
+            my_state = PlayerState.METAL_STANDING;
+    }
+
     IEnumerator UndoCommand()
     {
 
@@ -140,7 +257,7 @@ public class PlayerController : MonoBehaviour
             _history.redo.Push(_history.undo.Peek());
             _history.undo.Pop().Undo(_rigidbody);
             yield return new WaitForSeconds(_waitTime);
-        } while (_history.undo.Count>0);
+        } while (_history.undo.Count > 0);
 
         _undoActive = false;
     }
@@ -153,7 +270,7 @@ public class PlayerController : MonoBehaviour
             temp.Push(_history.undo.Peek());
             _history.undo.Pop().Undo(_rigidbody);
         }
-        
+
         while (temp.Count > 0)
         {
             _history.undo.Push(temp.Peek());

@@ -11,7 +11,10 @@ public class Enemy : MonoBehaviour
     // Start is called before the first frame update
     public void OnDamaged(float damage)
     {
-        Debug.Log("Ouch!");
+        if (damage < 6)
+            Debug.Log("Ouch!");
+        else
+            Debug.Log("CRUSHED!!");
         Health -= damage;
         if(Health <= 0)
             Destroy(gameObject);
